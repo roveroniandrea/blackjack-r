@@ -1,0 +1,349 @@
+---
+title: "Blackjack"
+author: "Andrea Roveroni"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# The deck
+A deck consists of 52 cards of 4 different suits, which are:
+- 1 * 4 aces
+- 9 * 4 numeric cards, from 2 to 10
+- 3 * 4 face cards, Jack, Queen and King
+
+Aces can either value 1 or 11 (whichever is favorable), numeric cards value their number, face cards all value 10
+
+# Blackjack
+A blackjack happens when the first two cards in your hand score 21. This means you need to have an ace and either a figure or a 10
+
+So, to have a Blackjack given a full deck of 52 cards, you need to pick:
+- 1 ace from the 4 available
+- 1 10 from the 16 available
+
+This leads us to the probability:
+$$
+Blackjack = \frac {\binom {4} {1} * \binom {16} {1}} {\binom {52} {2}} = `r (choose(4, 1) * choose(16, 1)) / choose(52, 2)`
+$$
+
+Since the game is generally played with 6-8 decks, we can generalize this formula for `n` decks:
+$$
+Blackjack = \frac {\binom {4n} {1} * \binom {16n} {1}} {\binom {52n} {2}} = \frac {128n^2} {52n * 52(n-1)}
+$$
+
+And we can plot it:
+```{r}
+x = 1:10
+y = (choose(4*x, 1) * choose(16*x, 1)) / choose(52*x, 2)
+
+plot(x, y)
+```
+
+We can observe that the probability of a Blackjack decreases as the number of decks increases.
+However, note that it will never reach zero.
+**TODO: Show limit `x -> inf`**
+
+
+# Theorem 8.1 (Infinite Deck Assumption)
+
+The infinite deck assumption in Blackjack fixes the probability of getting any non-ten-valued card as `4/52` and getting a ten-valued card as `16/52`. This assumption introduces very little error in calculation, and can be used to determine strategies for Blackjack games with a large number of decks.
+
+
+# Decision making
+
+## Hitting or standing
+
+Suppose we have in our hand an 8 and a 10, and that the dealer has a Q.
+
+If we hit, meaning if we take another card, we will bust for any card > 3. So, to not bust, we must pick an ace, a 2 or a 3. Using the Infinite Deck Assumption theorem, we can thus calculate the probability of not busting after we decided to pick a card:
+$$
+notBustAfterHit = \frac {4} {52} * 3 = `r notBustAfterHit = 4/52 * 3; notBustAfterHit`
+$$
+
+And the probability of busting is the opposite:
+$$
+bustAfterHit = \bar {notBustAfterHit} = `r bustAfterHit = 1 - notBustAfterHit; bustAfterHit`
+$$
+
+We want now calculate the probability of losing if we stand, so we can compare both options. We lose if the dealer scores > 18 (if the dealer scores 18 like us, the round ends with a tie) and does not bust.
+** See page 227**
+
+We end up with the probability of the dealer winning as `0.488119`
+
+So:
+$$
+loseAfterStanding = `r loseAfterStanding = 0.488119; loseAfterStanding`
+$$
+
+Comparing both options, we have a probability of losing after hitting of `r bustAfterHit` and a probability of losing after standing of `r loseAfterStanding`.
+
+This means that we are surely better standing.
+
+Note that we can also have a tie if the dealer scores 18, so the probability of winning is not the opposite of losing after standing.
+
+The probability that the dealer scores 19 can be calculated similarly as before:
+$$
+tieAfterStanding = `r tieAfterStanding = 0.111424; tieAfterStanding`
+$$
+
+We can calculate the expected winnings by standing. Assuming `1.00 $` bet:
+$$
+expectedWinningsForStand = (1 - loseAfterStanding - tieAfterStanding) * 1.00 + tieAfterStanding * 0.00 + loseAfterStanding * (-1.00) = `r (1 - loseAfterStanding - tieAfterStanding) * 1.00 + loseAfterStanding * (-1.00)`
+$$
+
+This gives the advantage to the dealer, but note that the dealer would have an even greater advantage if we decided to hit.
+
+# Probability for the dealer of a specific score
+
+**First, always initialize the following**
+
+```{r}
+# Current face up card of the dealer. Additionally, we assume the dealer has already checked for blackjack on the hole card
+dealer_up_card = 10
+
+# The expected sum of the dealer's cards for which to calculate the probability
+target_dealer_value = 19
+
+# Total number of decks in the game
+# Assumption: The current face up cards (both dealer's and players') currently do neither affect the available cards, nor the probability for each card, that we assume as stated before, 16/52 for each ten-valued card, 4/52 for each non-ten-valued card
+num_decks = 1
+
+# If true, the dealer stands if it has a soft 17
+soft_stands = FALSE
+```
+
+So the problem becomes:
+
+**Given the dealer has a $`r dealer_up_card`$ as the up card, and we play with $`r num_decks`$ deck(s), what is the probability of the dealer to score a total of $`r target_dealer_value`$?**
+
+
+```{r}
+# This function computes all possible ordered card extractions that give the expected value
+# Note that cards are ordered by their value, so here we're missing possible permutations
+# Additionally, no constraints are checked, like available cards, blackjack, dealer stand
+find_combinations <- function(values, target) {
+  find_recursive <- function(subset, remaining_values, target) {
+    # If we reached the target, end the branch here
+    if (sum(subset) == target) {
+      return(list(subset))
+    }
+    # If we're above the target, the entire branch is not valid
+    if (sum(subset) > target) {
+      return(list())
+    }
+    
+    solutions = list()
+    
+    # Loop for each remaining value
+    for (i in seq_along(remaining_values)) {
+      new_subset = c(subset, remaining_values[i])
+      # Try a branch with this value
+      solutions = c(solutions, find_recursive(new_subset, remaining_values[i:length(remaining_values)], target))
+    }
+    
+    return(solutions)
+  }
+  
+  return(find_recursive(c(), values, target))
+}
+
+# Helper function that, given some extraction paths (branches) and the amount of each card, returns only the paths that do not exceed the available amount for each card 
+remove_paths_exceeding_cards <- function(paths, available_cards) {
+  return(Filter(function(path) {
+      used_cards = c(rep(0, length(available_cards)))
+      
+      for(i in path){
+          # Ace and 1 are the same card
+          index = ifelse(i == 11, 1, i)
+          
+          used_cards[[index]] = used_cards[[index]] + 1
+          
+          # If the current card has been used more than the max number of times it is available, then the path is not valid
+          if(used_cards[[index]] > available_cards[[index]]){
+            return(FALSE)
+          }
+      }
+      
+      return(TRUE)
+    }, paths))
+}
+```
+
+If the dealer has, for example, a Q, to make 19 he has the following possibilities:
+
+```{r}
+# First, calculate all possible combinations that give a certain target
+possible_cards = 1:11
+paths = find_combinations(possible_cards, target_dealer_value - dealer_up_card)
+
+
+# Then, depending on the number of decks, filter out combinations that exceed the maximum number of each card
+
+# For each deck, we have 4 cards from 1 to 9, and 16 ten-valued cards. Ace counts as value one
+available_cards = c(rep(4, 9), 16)* num_decks
+
+valid_paths = remove_paths_exceeding_cards(paths, available_cards)
+```
+
+```{r}
+if (!require(combinat)) {
+  install.packages("combinat")
+}
+library(combinat)
+
+# Given some paths, returns a list of lists of all permutations
+permut_paths <- function(paths){
+  return(Map(function(path){
+      if(length(path) == 1){
+        return(path)
+      }
+      else{
+        return(unique(permn(path)))
+      }
+    }, paths)
+  )
+}
+
+# Given a list of permutations, filters out those that would result in the dealer standing
+remove_standing_paths <- function(permutations, dealer_up_card, soft_stands){
+  return(Map(function(sub_permutations){
+    valid_permuts = Filter(function(permutation){
+      total = dealer_up_card
+      
+      # Remove all combinations that would give a blackjack to the dealer
+      if(dealer_up_card == 10 && any(c(1, 11) == permutation[[1]])){
+        return(FALSE)
+      }
+      if(permutation[[1]] == 10 && any(c(1, 11) == dealer_up_card)){
+        return(FALSE)
+      }
+      
+      for(card in permutation){
+        if(total >= 17){
+          # If the dealer has reached 17 he could not pick this card, so the permutation is invalid
+          
+          # This is not valid if the dealer has a soft 17, meaning it has an ace and total 17, in which it can hit if rules allow it
+          if(!(!soft_stands && total == 17 && any(permutation == 11))){
+            return(FALSE)
+          }
+        }
+        total = total + card
+      }
+      
+      # Otherwise, the permutation is valid
+      return(TRUE)
+    }, sub_permutations)
+    
+    return(valid_permuts)
+  }, permutations))
+}
+```
+
+```{r}
+# Now, generate all the possible permutations
+permutations = permut_paths(valid_paths)
+
+
+# And filter out those permutations that would require the dealer to stand
+valid_permutations = remove_standing_paths(permutations, dealer_up_card, soft_stands)
+
+# Now, flatten the final results
+flattened_permutations = unlist(valid_permutations, recursive = FALSE)
+```
+
+```{r}
+# Given a flat list of paths, returns a list consisting in the probability for each path to occur
+calculate_paths_probability <- function(paths){
+  return(Map(function(cards){
+    prob = 1
+    for(card in cards){
+      # We said that for any 10-valued card we have a 16/52 probability
+      if(card == 10){
+        prob = prob * (16/52)
+      }
+      # And a 4/52 probability for any non-10-valued card
+      else{
+        prob = prob * (4 / 52)
+      }
+    }
+    
+    return(prob)
+  }, paths))
+}
+```
+
+```{r}
+# Now, for each valid combination of cards, we can calculate its probability
+probability_permutations = calculate_paths_probability(flattened_permutations)
+
+# And finally, we can sum all probabilities to see the total probability of the dealer to obtain a target value given an initial card
+total_probability = sum(unlist(probability_permutations))
+```
+
+**So the answer to our question is probability $`r total_probability`$**
+
+## Wrapping up
+
+The following is the code just seen, wrapped in a function so to be reused later
+```{r}
+calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_value, num_decks, soft_stands){
+  # Calculate all possible combinations for the target value
+  possible_cards = 1:11
+  paths = find_combinations(possible_cards, target_dealer_value - dealer_up_card)
+  
+  
+  # Then, filter out combinations that exceed the available cards
+  available_cards = c(rep(4, 9), 16)* num_decks
+  valid_paths = remove_paths_exceeding_cards(paths, available_cards)
+  
+  
+  # Now, generate all the possible permutations, filter out invalid ones, and flatten the results
+  permutations = permut_paths(valid_paths)
+  valid_permutations = remove_standing_paths(permutations, dealer_up_card, soft_stands)
+  flattened_permutations = unlist(valid_permutations, recursive = FALSE)
+  
+  
+  # Calculate the probability for each valid permutation, and sum them
+  probability_permutations = calculate_paths_probability(flattened_permutations)
+  total_probability = sum(unlist(probability_permutations))
+  
+  return(total_probability)
+}
+```
+
+
+# Probability of the player to bust
+
+This is a simpler question, since we do not need to calculate all possible combinations, since we're only interested in busting with a single card.
+
+Thus, given the current player score, we can calculate all possible card values that will exceed 21
+
+**First, always initialize the following**
+
+```{r}
+# Sum of current cards o the player
+player_score = 18
+```
+
+```{r}
+busting_probability = 0
+
+# Note that if we pick an ace, we only consider it as a 1
+for(i in 1:10){
+  if(player_score + i > 21){
+    # We busted with a card i-valued
+    # We use the infinite deck theorem to calculate the probability of this i-valued card
+    if(i == 10){
+      busting_probability = busting_probability + 16/52
+    }
+    else{
+      busting_probability = busting_probability + 4/52
+    }
+  }
+}
+```
+
+**So, given the player score of $`r player_score`$, the probability of busting is $`r busting_probability`$**
