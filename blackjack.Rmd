@@ -329,21 +329,190 @@ player_score = 18
 ```
 
 ```{r}
-busting_probability = 0
+calc_probability_player_busting <- function(player_score){
+  busting_probability = 0
 
-# Note that if we pick an ace, we only consider it as a 1
-for(i in 1:10){
-  if(player_score + i > 21){
-    # We busted with a card i-valued
-    # We use the infinite deck theorem to calculate the probability of this i-valued card
-    if(i == 10){
-      busting_probability = busting_probability + 16/52
-    }
-    else{
-      busting_probability = busting_probability + 4/52
+  # Note that if we pick an ace, we only consider it as a 1
+  for(i in 1:10){
+    if(player_score + i > 21){
+      # We busted with a card i-valued
+      # We use the infinite deck theorem to calculate the probability of this i-valued card
+      if(i == 10){
+        busting_probability = busting_probability + 16/52
+      }
+      else{
+        busting_probability = busting_probability + 4/52
+      }
     }
   }
+  
+  return(busting_probability)
 }
+
+busting_probability = calc_probability_player_busting(player_score)
 ```
 
 **So, given the player score of $`r player_score`$, the probability of busting is $`r busting_probability`$**
+
+# Comparing hitting and standing
+
+We are now able to compute the probability for each of the following cases:
+
+1. If we stand:
+    
+    1.1 Probability of the dealer to score higher than us (player loses)
+    
+    1.2 Probability of dealer scoring exactly like us (tie)
+    
+    1.3 Probability of the dealer to score less than us (player wins)
+  
+2. If we hit:
+    
+    2.1 Probability of busting (player loses)
+    
+## 1.1: Lose after standing
+
+The probability of losing after standing is the sum of the probabilities in which the dealer scores higher than the player:
+
+```{r}
+calc_probability_lose_after_standing <- function(player_score, dealer_up_card, num_decks, soft_stands){
+  prob = 0
+  
+  for(i in (player_score + 1):21){
+    prob = prob + calc_probability_exact_dealer_score(dealer_up_card, i, num_decks, soft_stands)
+  }
+  
+  return(prob)
+}
+
+prob_lose_after_standing = calc_probability_lose_after_standing(player_score, dealer_up_card, num_decks, soft_stands)
+prob_lose_after_standing
+```
+
+## 1.2 Tie after standing
+
+The probability of tie after standing is the probability the dealer scores exactly like the player:
+
+```{r}
+calc_probability_tie_after_standing <- function(player_score, dealer_up_card, num_decks, soft_stands){
+  
+  prob = calc_probability_exact_dealer_score(dealer_up_card, player_score, num_decks, soft_stands)
+  
+  return(prob)
+}
+
+prob_tie_after_standing = calc_probability_tie_after_standing(player_score, dealer_up_card, num_decks, soft_stands)
+prob_tie_after_standing
+```
+
+
+## 1.3 Win after standing
+
+Since this is the event in which the player neither loses nor ties, it can be calculated as:
+
+```{r}
+prob_win_after_standind = 1 - prob_lose_after_standing - prob_tie_after_standing
+prob_win_after_standind
+```
+
+
+## 2.1 Losing after hitting
+
+This is the event in which the player exceeds 21 after deciding to hit:
+```{r}
+prob_lose_after_hit = calc_probability_player_busting(player_score)
+prob_lose_after_hit
+```
+
+
+# Deciding which move is more convenient
+
+To summarise, we had the following situation:
+
+- The dealer had a $`r dealer_up_card`$-valued card as the face_up card. We're also assuming the rule that the dealer peeks the hole card to see if it's a blackjack
+
+- The player has some cards for a total of $`r player_score`$
+
+- The rule "dealer stands if has soft 17" is $`r soft_stands`$
+
+- We're playing with $`r num_decks`$ deck(s)
+
+If the player stands, the probability of losing is $`r prob_lose_after_standing`$. If the player hits, the probability of losing is $`r prob_lose_after_hit`$.
+
+The right choice to play is the one that gives the lower chances of losing, so in this case, the player should $`r if (prob_lose_after_standing < prob_lose_after_hit){"stand"} else {"hit"}`$.
+
+
+# Expanding for all possibilities
+
+We are now able to automatically compute the best strategy for each pair of $(playerScore, dealerUpCard)$:
+```{r}
+# We can safely ignore a score of 21 for the player
+possible_player_scores = 1:21 # 15:21 works on single core
+
+possible_dealer_face_up_card = 1:11 # 7:11 works on single core
+```
+
+Note: **Since the following code chunks are heavy to compute, they are set with `eval=FALSE` so to not be evaluated when Knitting the rmarkdown**
+
+The following computes the decision matrix using a single core:
+
+```{r, eval=FALSE}
+decision_matrix = sapply(possible_dealer_face_up_card, function(dealer_up_card){
+  return(sapply(possible_player_scores, function(player_score){
+    prob_lose_after_standing = calc_probability_lose_after_standing(player_score, dealer_up_card, num_decks, soft_stands)
+  
+    prob_lose_after_hit = calc_probability_player_busting(player_score)
+    
+    if(prob_lose_after_standing < prob_lose_after_hit){
+      return("S")
+    }
+    else{
+      return("H")
+    }
+  }))
+})
+
+decision_matrix
+```
+
+Note: **The above calculation might be too heavy to be computed in one thread**.
+
+If this is the case, you could try the following code, which leverages the `parallel` library to split the calculation on multiple cores.
+
+Note: This example uses `parLapply` to be Windows-compatible. For Unix-like OS, `mlcapply` is recommended instead.
+
+```{r, eval=FALSE}
+# This library is already present in the default R installation
+library(parallel)
+
+# Create a work cluster
+num_core <- detectCores() - 1
+cl <- makeCluster(num_core)
+
+# Export 
+clusterExport(cl, varlist = c("possible_player_scores", "calc_probability_lose_after_standing", "num_decks", "soft_stands", "calc_probability_player_busting", "calc_probability_exact_dealer_score", "find_combinations", "calculate_paths_probability", "remove_standing_paths", "permut_paths", "remove_paths_exceeding_cards", "permn"))
+
+# 
+intermediate_matrix <- parLapply(cl, possible_dealer_face_up_card, function(dealer_up_card){
+  return(sapply(possible_player_scores, function(player_score){
+    prob_lose_after_standing = calc_probability_lose_after_standing(player_score, dealer_up_card, num_decks, soft_stands)
+  
+    prob_lose_after_hit = calc_probability_player_busting(player_score)
+    
+    if(prob_lose_after_standing < prob_lose_after_hit){
+      return("S")
+    }
+    else{
+      return("H")
+    }
+  }))
+})
+
+# Stop the cluster once finished
+stopCluster(cl)
+
+# 
+decision_matrix = do.call(rbind, intermediate_matrix)
+
+decision_matrix
+```
