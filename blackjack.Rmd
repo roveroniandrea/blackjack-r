@@ -364,7 +364,7 @@ We are now able to compute the probability for each of the following cases:
     
     1.2 Probability of dealer scoring exactly like us (tie)
     
-    1.3 Probability of the dealer to score less than us (player wins)
+    1.3 Probability of the dealer to score less than us or exceeds 21 (player wins)
   
 2. If we hit:
     
@@ -447,16 +447,19 @@ The right choice to play is the one that gives the lower chances of losing, so i
 We are now able to automatically compute the best strategy for each pair of $(playerScore, dealerUpCard)$:
 ```{r}
 # We can safely ignore a score of 21 for the player
-possible_player_scores = 1:21 # 15:21 works on single core
+possible_player_scores = 13:21 # 15:21 works on single core
 
-possible_dealer_face_up_card = 1:11 # 7:11 works on single core
+possible_dealer_face_up_card = 7:11 # 7:11 works on single core
+
+num_decks = 1
+soft_stands = FALSE
 ```
 
-Note: **Since the following code chunks are heavy to compute, they are set with `eval=FALSE` so to not be evaluated when Knitting the rmarkdown**
+Note: **Since the following code chunks are heavy to compute, they are set with `eval = FALSE` so to not be evaluated when Knitting the rmarkdown**. Additionally, they're set with `cache = TRUE` so to not be re-evaluated at any Knit (if eval enabled)
 
 The following computes the decision matrix using a single core:
 
-```{r, eval=FALSE}
+```{r, eval = FALSE, cache = TRUE}
 decision_matrix = sapply(possible_dealer_face_up_card, function(dealer_up_card){
   return(sapply(possible_player_scores, function(player_score){
     prob_lose_after_standing = calc_probability_lose_after_standing(player_score, dealer_up_card, num_decks, soft_stands)
@@ -481,7 +484,7 @@ If this is the case, you could try the following code, which leverages the `para
 
 Note: This example uses `parLapply` to be Windows-compatible. For Unix-like OS, `mlcapply` is recommended instead.
 
-```{r, eval=FALSE}
+```{r, eval = FALSE, cache = TRUE}
 # This library is already present in the default R installation
 library(parallel)
 
@@ -516,3 +519,19 @@ decision_matrix = do.call(rbind, intermediate_matrix)
 
 decision_matrix
 ```
+
+
+# TODO: Algoritmo calcolo permutazioni
+Dato un valore target X:
+- Enumerare le partizioni di x (find_combinations)
+- Per ogni partizione, calcolare "gli anagrammi"con formula:
+$$
+anagrammi = \frac {l!} {k_1! * k_2! * ... * k_n!}
+$$
+- Per ogni partizione, la probabilità dei suoi anagrammi è data da:
+prob_partizione * num_anagrammi
+
+- Dove la probabilità della partizione è data:
+prob_partizione: (16/52) ^ (num_carte_10) * (4/52) ^ (num_carte_not_10)
+
+
