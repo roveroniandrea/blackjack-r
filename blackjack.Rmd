@@ -172,6 +172,7 @@ remove_paths_exceeding_cards <- function(paths, available_cards) {
 }
 ```
 
+**TODO: Not exactly, redo with new logic:**
 If the dealer has, for example, a Q, to make 19 he has the following possibilities:
 
 ```{r}
@@ -189,128 +190,107 @@ valid_paths = remove_paths_exceeding_cards(paths, available_cards)
 ```
 
 ```{r}
-if (!require(combinat)) {
-  install.packages("combinat")
-}
-library(combinat)
-
-# Given some paths, returns a list of lists of all permutations
-permut_paths <- function(paths){
-  return(Map(function(path){
-      if(length(path) == 1){
-        return(path)
-      }
-      else{
-        return(unique(permn(path)))
-      }
-    }, paths)
-  )
-}
-
-# Given a list of permutations, filters out those that would result in the dealer standing
-remove_standing_paths <- function(permutations, dealer_up_card, soft_stands){
-  return(Map(function(sub_permutations){
-    valid_permuts = Filter(function(permutation){
-      total = dealer_up_card
-      
-      # Remove all combinations that would give a blackjack to the dealer
-      if(dealer_up_card == 10 && any(c(1, 11) == permutation[[1]])){
-        return(FALSE)
-      }
-      if(permutation[[1]] == 10 && any(c(1, 11) == dealer_up_card)){
-        return(FALSE)
-      }
-      
-      for(card in permutation){
-        if(total >= 17){
-          # If the dealer has reached 17 he could not pick this card, so the permutation is invalid
-          
-          # This is not valid if the dealer has a soft 17, meaning it has an ace and total 17, in which it can hit if rules allow it
-          if(!(!soft_stands && total == 17 && any(permutation == 11))){
-            return(FALSE)
-          }
-        }
-        total = total + card
-      }
-      
-      # Otherwise, the permutation is valid
-      return(TRUE)
-    }, sub_permutations)
+# Given a path, returns the corresponding probability for it to occur
+calculate_path_probability <- function(path){
+  prob = 1
+  for(card in path){
+    # We said that for any 10-valued card we have a 16/52 probability
+    if(card == 10){
+      prob = prob * (16/52)
+    }
+    # And a 4/52 probability for any non-10-valued card
+    else{
+      prob = prob * (4 / 52)
+    }
+  }
     
-    return(valid_permuts)
-  }, permutations))
+  return(prob)
+}
+
+# Given a path, returns the total numbers of its anagrams (without repetition)
+count_path_anagrams <- function(path){
+  element_occurrences = as.vector(table(path))
+  
+  return(factorial(length(path)) / prod(factorial(element_occurrences)))
 }
 ```
 
+
+The following is the code, wrapped in a function so to be reused later
 ```{r}
-# Now, generate all the possible permutations
-permutations = permut_paths(valid_paths)
-
-
-# And filter out those permutations that would require the dealer to stand
-valid_permutations = remove_standing_paths(permutations, dealer_up_card, soft_stands)
-
-# Now, flatten the final results
-flattened_permutations = unlist(valid_permutations, recursive = FALSE)
-```
-
-```{r}
-# Given a flat list of paths, returns a list consisting in the probability for each path to occur
-calculate_paths_probability <- function(paths){
-  return(Map(function(cards){
-    prob = 1
-    for(card in cards){
-      # We said that for any 10-valued card we have a 16/52 probability
-      if(card == 10){
-        prob = prob * (16/52)
+calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_value, num_decks){
+  # Note: the dealer always hits on 17, no matter soft 17
+  
+  # If the dealer already has an higher value then the up card, he will surely make a higher score
+  if(target_dealer_value < dealer_up_card){
+    return(0)
+  }
+  
+  # Instead, if the dealer already has the up card as the target value,
+  # the probability is 1 since he just does not need to pick any card
+  if(target_dealer_value == dealer_up_card){
+    return(1)
+  }
+  
+  # For target values < 17, we do not need to consider the rule of standing when scoring 17 or above
+  if(target_dealer_value < 17){
+    # Calculate all possible combinations for the target value
+    possible_cards = 1:11
+    paths = find_combinations(possible_cards, target_dealer_value - dealer_up_card)
+    
+    # Then, filter out combinations that exceed the available cards
+    available_cards = c(rep(4, 9), 16)* num_decks
+    valid_paths = remove_paths_exceeding_cards(paths, available_cards)
+    
+    total_probability = 0
+    
+    for(path in valid_paths){
+      path_probability = calculate_path_probability(path)
+      
+      path_anagrams_count = count_path_anagrams(path)
+      
+      # We should prevent blackjacks
+      path_anagrams_not_blackjack_count = path_anagrams_count
+      if(dealer_up_card == 10 && any(path %in% c(1, 11))){
+        first_occ <- which(path %in% c(1, 11))[1]
+        
+        path_anagrams_not_blackjack_count = path_anagrams_not_blackjack_count - count_path_anagrams(path[-first_occ])
       }
-      # And a 4/52 probability for any non-10-valued card
-      else{
-        prob = prob * (4 / 52)
+      if(any(dealer_up_card %in% c(1, 11)) && any(path %in% 10)){
+        first_occ <- which(path %in% c(10))[1]
+        
+        path_anagrams_not_blackjack_count = path_anagrams_not_blackjack_count - count_path_anagrams(path[-first_occ])
       }
+      
+      total_probability = total_probability + path_probability * path_anagrams_not_blackjack_count
+    }
+  
+    return(total_probability)
+  }
+  else{
+    # If instead we hit 17 or above, we need to split the computation:
+    # The dealer should reach a score lower than 16, and then hit a single card without busting
+    safe_scores = Filter(function(score){
+      return(score > 0 && score < 17)
+    }, target_dealer_value - 1:11)
+    total_probability = 0
+    
+    for(score in safe_scores){
+        card_difference = target_dealer_value - score
+        
+        # We also need to ignore the blackjack combination
+        if(!((dealer_up_card == 10 && card_difference %in% c(1, 11)) || (dealer_up_card %in% c(1, 11) && card_difference == 10))){
+        card_probability = if(card_difference == 10) {16/52} else {4/52}
+        
+        intermediate_score_prob = calc_probability_exact_dealer_score(dealer_up_card, score, num_decks)
+        
+        total_probability = total_probability + intermediate_score_prob * card_probability
+        }
+        
     }
     
-    return(prob)
-  }, paths))
-}
-```
-
-```{r}
-# Now, for each valid combination of cards, we can calculate its probability
-probability_permutations = calculate_paths_probability(flattened_permutations)
-
-# And finally, we can sum all probabilities to see the total probability of the dealer to obtain a target value given an initial card
-total_probability = sum(unlist(probability_permutations))
-```
-
-**So the answer to our question is probability $`r total_probability`$**
-
-## Wrapping up
-
-The following is the code just seen, wrapped in a function so to be reused later
-```{r}
-calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_value, num_decks, soft_stands){
-  # Calculate all possible combinations for the target value
-  possible_cards = 1:11
-  paths = find_combinations(possible_cards, target_dealer_value - dealer_up_card)
-  
-  
-  # Then, filter out combinations that exceed the available cards
-  available_cards = c(rep(4, 9), 16)* num_decks
-  valid_paths = remove_paths_exceeding_cards(paths, available_cards)
-  
-  
-  # Now, generate all the possible permutations, filter out invalid ones, and flatten the results
-  permutations = permut_paths(valid_paths)
-  valid_permutations = remove_standing_paths(permutations, dealer_up_card, soft_stands)
-  flattened_permutations = unlist(valid_permutations, recursive = FALSE)
-  
-  
-  # Calculate the probability for each valid permutation, and sum them
-  probability_permutations = calculate_paths_probability(flattened_permutations)
-  total_probability = sum(unlist(probability_permutations))
-  
-  return(total_probability)
+    return(total_probability)
+  }
 }
 ```
 
@@ -375,17 +355,19 @@ We are now able to compute the probability for each of the following cases:
 The probability of losing after standing is the sum of the probabilities in which the dealer scores higher than the player:
 
 ```{r}
-calc_probability_lose_after_standing <- function(player_score, dealer_up_card, num_decks, soft_stands){
+calc_probability_lose_after_standing <- function(player_score, dealer_up_card, num_decks){
   prob = 0
   
   for(i in (player_score + 1):21){
-    prob = prob + calc_probability_exact_dealer_score(dealer_up_card, i, num_decks, soft_stands)
+    if(i >= 17){
+      prob = prob + calc_probability_exact_dealer_score(dealer_up_card, i, num_decks)
+    }
   }
   
   return(prob)
 }
 
-prob_lose_after_standing = calc_probability_lose_after_standing(player_score, dealer_up_card, num_decks, soft_stands)
+prob_lose_after_standing = calc_probability_lose_after_standing(player_score, dealer_up_card, num_decks)
 prob_lose_after_standing
 ```
 
@@ -394,14 +376,17 @@ prob_lose_after_standing
 The probability of tie after standing is the probability the dealer scores exactly like the player:
 
 ```{r}
-calc_probability_tie_after_standing <- function(player_score, dealer_up_card, num_decks, soft_stands){
+calc_probability_tie_after_standing <- function(player_score, dealer_up_card, num_decks){
+  if(player_score < 17){
+    return(0)
+  }
   
-  prob = calc_probability_exact_dealer_score(dealer_up_card, player_score, num_decks, soft_stands)
+  prob = calc_probability_exact_dealer_score(dealer_up_card, player_score, num_decks)
   
   return(prob)
 }
 
-prob_tie_after_standing = calc_probability_tie_after_standing(player_score, dealer_up_card, num_decks, soft_stands)
+prob_tie_after_standing = calc_probability_tie_after_standing(player_score, dealer_up_card, num_decks)
 prob_tie_after_standing
 ```
 
@@ -429,7 +414,7 @@ prob_lose_after_hit
 
 To summarise, we had the following situation:
 
-- The dealer had a $`r dealer_up_card`$-valued card as the face_up card. We're also assuming the rule that the dealer peeks the hole card to see if it's a blackjack
+- The dealer had a $`r dealer_up_card`$-valued card as the face-up card. We're also assuming the rule that the dealer peeks the hole card to see if it's a blackjack
 
 - The player has some cards for a total of $`r player_score`$
 
@@ -447,24 +432,24 @@ The right choice to play is the one that gives the lower chances of losing, so i
 We are now able to automatically compute the best strategy for each pair of $(playerScore, dealerUpCard)$:
 ```{r}
 # We can safely ignore a score of 21 for the player
-possible_player_scores = 13:21 # 15:21 works on single core
+possible_player_scores = 1:20
 
-possible_dealer_face_up_card = 7:11 # 7:11 works on single core
+possible_dealer_face_up_card = 1:11 # 7:11 works on single core
 
 num_decks = 1
 soft_stands = FALSE
 ```
 
-Note: **Since the following code chunks are heavy to compute, they are set with `eval = FALSE` so to not be evaluated when Knitting the rmarkdown**. Additionally, they're set with `cache = TRUE` so to not be re-evaluated at any Knit (if eval enabled)
+The following computes the decision matrix:
 
-The following computes the decision matrix using a single core:
-
-```{r, eval = FALSE, cache = TRUE}
+```{r}
 decision_matrix = sapply(possible_dealer_face_up_card, function(dealer_up_card){
   return(sapply(possible_player_scores, function(player_score){
-    prob_lose_after_standing = calc_probability_lose_after_standing(player_score, dealer_up_card, num_decks, soft_stands)
+    prob_lose_after_standing = calc_probability_lose_after_standing(player_score, dealer_up_card, num_decks)
   
     prob_lose_after_hit = calc_probability_player_busting(player_score)
+    
+    return(prob_lose_after_standing - prob_lose_after_hit)
     
     if(prob_lose_after_standing < prob_lose_after_hit){
       return("S")
@@ -478,48 +463,33 @@ decision_matrix = sapply(possible_dealer_face_up_card, function(dealer_up_card){
 decision_matrix
 ```
 
-Note: **The above calculation might be too heavy to be computed in one thread**.
+We can thus print the matrix:
+```{r}
+if (!require(ggplot2)) {
+  install.packages("ggplot2")
+}
+if (!require(reshape2)) {
+  install.packages("reshape2")
+}
+library(ggplot2)
+library(reshape2)
 
-If this is the case, you could try the following code, which leverages the `parallel` library to split the calculation on multiple cores.
-
-Note: This example uses `parLapply` to be Windows-compatible. For Unix-like OS, `mlcapply` is recommended instead.
-
-```{r, eval = FALSE, cache = TRUE}
-# This library is already present in the default R installation
-library(parallel)
-
-# Create a work cluster
-num_core <- detectCores() - 1
-cl <- makeCluster(num_core)
-
-# Export 
-clusterExport(cl, varlist = c("possible_player_scores", "calc_probability_lose_after_standing", "num_decks", "soft_stands", "calc_probability_player_busting", "calc_probability_exact_dealer_score", "find_combinations", "calculate_paths_probability", "remove_standing_paths", "permut_paths", "remove_paths_exceeding_cards", "permn"))
+df <- melt(sign(decision_matrix))
+colnames(df) <- c("Y", "X", "Value")
 
 # 
-intermediate_matrix <- parLapply(cl, possible_dealer_face_up_card, function(dealer_up_card){
-  return(sapply(possible_player_scores, function(player_score){
-    prob_lose_after_standing = calc_probability_lose_after_standing(player_score, dealer_up_card, num_decks, soft_stands)
-  
-    prob_lose_after_hit = calc_probability_player_busting(player_score)
-    
-    if(prob_lose_after_standing < prob_lose_after_hit){
-      return("S")
-    }
-    else{
-      return("H")
-    }
-  }))
-})
-
-# Stop the cluster once finished
-stopCluster(cl)
-
-# 
-decision_matrix = do.call(rbind, intermediate_matrix)
-
-decision_matrix
+ggplot(df, aes(x = X, y = Y, fill = Value)) +
+  geom_tile(color = "grey") +                       # Crea le celle con bordi bianchi
+  scale_fill_gradientn(colors = c("white", "black"), # Scala colore da nero a bianco
+                       values = c(0, 1),             # Mappa 0 (nero) e valori positivi (bianco)
+                       limits = c(-1, 1)) +          # Imposta i limiti della scala dei colori
+  #scale_y_reverse() +                                # Inverte l'asse Y per un aspetto simile a una matrice
+  scale_x_continuous(breaks = 1:ncol(decision_matrix), labels = possible_dealer_face_up_card) +  # Mostra tutte le colonne
+  scale_y_continuous(breaks = 1:nrow(decision_matrix), labels = possible_player_scores) +  # Mostra tutte le righe
+  theme_minimal() +
+  labs(x = "Dealer's up card", y = "Hard total", fill = "Hit if > 0, else Stand") + # Aggiunge etichette
+  theme(panel.grid = element_blank())                # Rimuove la griglia di sfondo
 ```
-
 
 # TODO: Algoritmo calcolo permutazioni
 Dato un valore target X:
