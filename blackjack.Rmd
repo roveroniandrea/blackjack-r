@@ -279,12 +279,17 @@ calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_va
         card_difference = target_dealer_value - score
         
         # We also need to ignore the blackjack combination
-        if(!((dealer_up_card == 10 && card_difference %in% c(1, 11)) || (dealer_up_card %in% c(1, 11) && card_difference == 10))){
-        card_probability = if(card_difference == 10) {16/52} else {4/52}
+        is_blackjack = (dealer_up_card == 10 && dealer_up_card == score && card_difference == 11) ||
+          (dealer_up_card %in% c(1, 11) && dealer_up_card == score && card_difference == 10)
         
-        intermediate_score_prob = calc_probability_exact_dealer_score(dealer_up_card, score, num_decks)
-        
-        total_probability = total_probability + intermediate_score_prob * card_probability
+        if(!is_blackjack){
+          card_probability = if(card_difference == 10) {16/52} else {4/52}
+          
+          # Here we calculate the probability of obtaining a certain score
+          intermediate_score_prob = calc_probability_exact_dealer_score(dealer_up_card, score, num_decks)
+          
+          
+          total_probability = total_probability + intermediate_score_prob * card_probability
         }
         
     }
