@@ -218,24 +218,31 @@ count_path_anagrams <- function(path){
 
 The following is the code, wrapped in a function so to be reused later
 ```{r}
-calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_value, num_decks){
+calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_value, num_decks, cache){
   # Note: the dealer always hits on 17, no matter soft 17
+  cache_key = paste(dealer_up_card, target_dealer_value, num_decks, sep = "_")
+  if(exists(cache_key, envir = cache)){
+    return(get(cache_key, envir = cache))
+  }
   
   # If the dealer already has an higher value then the up card, he will surely make a higher score
   if(target_dealer_value < dealer_up_card){
+    assign(cache_key, 0, envir = cache)
     return(0)
   }
   
   # Instead, if the dealer already has the up card as the target value,
   # the probability is 1 since he just does not need to pick any card
   if(target_dealer_value == dealer_up_card){
+    assign(cache_key, 1, envir = cache)
     return(1)
   }
   
   # For target values < 17, we do not need to consider the rule of standing when scoring 17 or above
   if(target_dealer_value < 17){
     # Calculate all possible combinations for the target value
-    possible_cards = 1:11
+    # We remove the possibility to an ace to be considered 1. We'll calculate it later
+    possible_cards = 2:11
     paths = find_combinations(possible_cards, target_dealer_value - dealer_up_card)
     
     # Then, filter out combinations that exceed the available cards
@@ -262,9 +269,22 @@ calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_va
         path_anagrams_not_blackjack_count = path_anagrams_not_blackjack_count - count_path_anagrams(path[-first_occ])
       }
       
+      # print(cat("Given up card ", dealer_up_card, " and target ", target_dealer_value, "and path ", toString(path)," anagram counts are ", path_anagrams_not_blackjack_count))
+      
       total_probability = total_probability + path_probability * path_anagrams_not_blackjack_count
     }
+    
+    # Now we count the probability of an ace (to be picked as the last card) to be counted as one
+    # This is only possible if the ace would make the dealer reach a score higher than 21
+    if((target_dealer_value - 1 + 11) > 21){
+      probability_minus_one = calc_probability_exact_dealer_score(dealer_up_card, target_dealer_value - 1, num_decks, cache)
+      
+      # print(cat("For target value ", target_dealer_value, " we could also have a 1-ace with following prob for -1: ", probability_minus_one))
+      
+      total_probability = total_probability + probability_minus_one * 4 / 52
+    }
   
+    assign(cache_key, total_probability, envir = cache)
     return(total_probability)
   }
   else{
@@ -283,10 +303,13 @@ calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_va
           (dealer_up_card %in% c(1, 11) && dealer_up_card == score && card_difference == 10)
         
         if(!is_blackjack){
+          # print(cat("For standing at ", target_dealer_value, " we can reach ", score, " and then pick ", card_difference))
+          
           card_probability = if(card_difference == 10) {16/52} else {4/52}
           
           # Here we calculate the probability of obtaining a certain score
-          intermediate_score_prob = calc_probability_exact_dealer_score(dealer_up_card, score, num_decks)
+          intermediate_score_prob = calc_probability_exact_dealer_score(dealer_up_card, score, num_decks, cache)
+          # print(cat("The above has probability ", intermediate_score_prob, " * card_probability"))
           
           
           total_probability = total_probability + intermediate_score_prob * card_probability
@@ -294,6 +317,7 @@ calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_va
         
     }
     
+    assign(cache_key, total_probability, envir = cache)
     return(total_probability)
   }
 }
@@ -360,19 +384,19 @@ We are now able to compute the probability for each of the following cases:
 The probability of losing after standing is the sum of the probabilities in which the dealer scores higher than the player:
 
 ```{r}
-calc_probability_lose_after_standing <- function(player_score, dealer_up_card, num_decks){
+calc_probability_lose_after_standing <- function(player_score, dealer_up_card, num_decks, cache){
   prob = 0
   
   for(i in (player_score + 1):21){
     if(i >= 17){
-      prob = prob + calc_probability_exact_dealer_score(dealer_up_card, i, num_decks)
+      prob = prob + calc_probability_exact_dealer_score(dealer_up_card, i, num_decks, cache)
     }
   }
   
   return(prob)
 }
 
-prob_lose_after_standing = calc_probability_lose_after_standing(player_score, dealer_up_card, num_decks)
+prob_lose_after_standing = calc_probability_lose_after_standing(player_score, dealer_up_card, num_decks, new.env())
 prob_lose_after_standing
 ```
 
@@ -381,17 +405,17 @@ prob_lose_after_standing
 The probability of tie after standing is the probability the dealer scores exactly like the player:
 
 ```{r}
-calc_probability_tie_after_standing <- function(player_score, dealer_up_card, num_decks){
+calc_probability_tie_after_standing <- function(player_score, dealer_up_card, num_decks, cache){
   if(player_score < 17){
     return(0)
   }
   
-  prob = calc_probability_exact_dealer_score(dealer_up_card, player_score, num_decks)
+  prob = calc_probability_exact_dealer_score(dealer_up_card, player_score, num_decks, cache)
   
   return(prob)
 }
 
-prob_tie_after_standing = calc_probability_tie_after_standing(player_score, dealer_up_card, num_decks)
+prob_tie_after_standing = calc_probability_tie_after_standing(player_score, dealer_up_card, num_decks, new.env())
 prob_tie_after_standing
 ```
 
@@ -448,9 +472,10 @@ soft_stands = FALSE
 The following computes the decision matrix:
 
 ```{r}
+cache = new.env()
 decision_matrix = sapply(possible_dealer_face_up_card, function(dealer_up_card){
   return(sapply(possible_player_scores, function(player_score){
-    prob_lose_after_standing = calc_probability_lose_after_standing(player_score, dealer_up_card, num_decks)
+    prob_lose_after_standing = calc_probability_lose_after_standing(player_score, dealer_up_card, num_decks, cache)
   
     prob_lose_after_hit = calc_probability_player_busting(player_score)
     
