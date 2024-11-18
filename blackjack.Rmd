@@ -276,6 +276,8 @@ calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_va
     
     # Now we count the probability of an ace (to be picked as the last card) to be counted as one
     # This is only possible if the ace would make the dealer reach a score higher than 21
+    
+    # TODO: Qui credo che salti delle possibilità
     if((target_dealer_value - 1 + 11) > 21){
       probability_minus_one = calc_probability_exact_dealer_score(dealer_up_card, target_dealer_value - 1, num_decks, cache)
       
