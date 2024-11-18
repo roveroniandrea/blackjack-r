@@ -218,8 +218,26 @@ count_path_anagrams <- function(path){
 
 The following is the code, wrapped in a function so to be reused later
 ```{r}
+if (!require(combinat)) {
+  install.packages("combinat")
+}
+library(combinat)
+
+# Given some paths, returns a list of lists of all permutations
+permut_paths <- function(paths){
+  return(Map(function(path){
+      if(length(path) == 1){
+        return(list(path))
+      }
+      else{
+        return(unique(permn(path)))
+      }
+    }, paths)
+  )
+}
+
 calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_value, num_decks, cache){
-  # Note: the dealer always hits on 17, no matter soft 17
+  # Note: the dealer always stands on 17, no matter soft 17
   cache_key = paste(dealer_up_card, target_dealer_value, num_decks, sep = "_")
   if(exists(cache_key, envir = cache)){
     return(get(cache_key, envir = cache))
@@ -241,17 +259,26 @@ calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_va
   # For target values < 17, we do not need to consider the rule of standing when scoring 17 or above
   if(target_dealer_value < 17){
     # Calculate all possible combinations for the target value
-    # We remove the possibility to an ace to be considered 1. We'll calculate it later
-    possible_cards = 2:11
+    possible_cards = 1:11
     paths = find_combinations(possible_cards, target_dealer_value - dealer_up_card)
     
     # Then, filter out combinations that exceed the available cards
     available_cards = c(rep(4, 9), 16)* num_decks
     valid_paths = remove_paths_exceeding_cards(paths, available_cards)
     
+    not_1_paths = Filter(function(path){
+      return(!any(c(1) %in% path))
+    }, valid_paths)
+    
+    one_paths = Filter(function(path){
+      return(any(c(1) %in% path) && length(path) < 7) # To make the computation less heavy, we can ignore paths longer that a certain threshold since their probability would be very low
+    }, valid_paths)
+    
+    one_paths_permuts = unlist(permut_paths(one_paths), recursive = FALSE)
+    
     total_probability = 0
     
-    for(path in valid_paths){
+    for(path in not_1_paths){
       path_probability = calculate_path_probability(path)
       
       path_anagrams_count = count_path_anagrams(path)
@@ -274,18 +301,37 @@ calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_va
       total_probability = total_probability + path_probability * path_anagrams_not_blackjack_count
     }
     
-    # Now we count the probability of an ace (to be picked as the last card) to be counted as one
-    # This is only possible if the ace would make the dealer reach a score higher than 21
+    valid_one_path_permuts = Filter(function(path){
+      # We should prevent blackjacks
+      if(dealer_up_card == 10 && path[1] %in% c(1, 11)){
+        return(FALSE)
+      }
+      if(any(dealer_up_card %in% c(1, 11)) && path[1] == 10){
+        return(FALSE)
+      }
+      
+      total = dealer_up_card
+      
+      for(card in path){
+        if(card == 1 && total + 11 <= 21){
+          return(FALSE)
+        }
+        
+        total = total + card
+      }
+      
+      return(TRUE)
+    }, one_paths_permuts)
     
-    # TODO: Qui credo che salti delle possibilità
-    if((target_dealer_value - 1 + 11) > 21){
-      probability_minus_one = calc_probability_exact_dealer_score(dealer_up_card, target_dealer_value - 1, num_decks, cache)
-      
-      # print(cat("For target value ", target_dealer_value, " we could also have a 1-ace with following prob for -1: ", probability_minus_one))
-      
-      total_probability = total_probability + probability_minus_one * 4 / 52
+    for(path in valid_one_path_permuts){
+      total_probability = total_probability + calculate_path_probability(path)
     }
-  
+    
+    # print(cat("Given up card ", dealer_up_card, " to reach ", target_dealer_value, " we have the following not-1 paths: "))
+    # print(not_1_paths)
+    # print(cat("Instead, given up card ", dealer_up_card, " to reach ", target_dealer_value, " we have the following 1 paths: "))
+    # print(valid_one_path_permuts)
+    
     assign(cache_key, total_probability, envir = cache)
     return(total_probability)
   }
@@ -296,6 +342,9 @@ calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_va
       return(score > 0 && score < 17)
     }, target_dealer_value - 1:11)
     total_probability = 0
+    
+    # print("Safe scores:")
+    # print(safe_scores)
     
     for(score in safe_scores){
         card_difference = target_dealer_value - score
@@ -311,7 +360,7 @@ calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_va
           
           # Here we calculate the probability of obtaining a certain score
           intermediate_score_prob = calc_probability_exact_dealer_score(dealer_up_card, score, num_decks, cache)
-          # print(cat("The above has probability ", intermediate_score_prob, " * card_probability"))
+          # print(cat("The above has probability ", intermediate_score_prob, " * card_probability "))
           
           
           total_probability = total_probability + intermediate_score_prob * card_probability
