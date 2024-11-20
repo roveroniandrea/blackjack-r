@@ -631,9 +631,17 @@ calc_probability_lose_after_standing4 <- function(player_score, dealer_up_card, 
       }
     }
     
-    # TODO: condizione sbagliata
-    if(depth <= 0 || (current_score > max(16, player_score) && current_score <= 21)){
+    if(current_score > max(16, player_score) && current_score <= 21){
       if(unmatched_ones <= 0){
+        return(1)
+      }
+      else{
+        return(0)
+      }
+    }
+    
+    if(depth <= 0){
+      if((current_score > max(16, player_score) && current_score <= 21) && unmatched_ones <= 0){
         return(1)
       }
       else{
@@ -666,7 +674,7 @@ calc_probability_lose_after_standing4 <- function(player_score, dealer_up_card, 
         inner_prob = inner(new_score, unmatched_ones + is_one, depth - 1)
         
         if(inner_prob > 0){
-          print(cat(depth, "__", card))
+          # print(cat(depth, "__", card))
         }
           
         prob = prob + card_prob * inner_prob
