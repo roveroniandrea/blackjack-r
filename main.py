@@ -41,8 +41,10 @@ decision_matrix_soft=[
 
 def gen_card():
     c = random.randint(1, 13)
+    # non-10 valued cards have 4/52 = 1/13 prob
     if c == 1: return 11
-    if c > 11: return 10
+    # 10-valued cards have 16/52 = 4 / 13 prob
+    if c >= 10: return 10
     return c
 
 
@@ -62,9 +64,19 @@ def dealer(first_cards):
     return tot, card_sequence
 
 
+"""
+Returns 1 for player win, 0 for tie, -1 for player lose
+"""
 def evaluate_winner(player, p_c, house, h_c):
-    return ((p_c[0] + p_c[1]) == 21 and (h_c[0] + h_c[1]) != 21) or (player > house and player <= 21) or (
-                player <= 21 and house > 21)
+    if(((p_c[0] + p_c[1]) == 21 and (h_c[0] + h_c[1]) != 21)
+       or (player > house and player <= 21)
+       or ( player <= 21 and house > 21)):
+        return 1
+    
+    if(player == house and player <= 21):
+        return 0
+
+    return -1
 
 
 def decision_index(tot):
@@ -110,7 +122,7 @@ def player(player_cards, dealer_first):
     return sum(player_cards)
 
 
-def mach(index):
+def match():
     # game start
     dealer_first = gen_card()
     dealer_second = gen_card()
@@ -121,7 +133,7 @@ def mach(index):
     #game end
     d = dealer([dealer_first, dealer_second])
     winner = evaluate_winner(tot_player, player_cards, d[0], d[1])
-    if(DEBUG):print(("win \t" if winner else "lose\t") + "player{" + str(tot_player) + "}: " + str(
+    if(DEBUG):print(("win \t" if winner == 1 else ("lose\t" if winner == -1 else "tie\t")) + "player{" + str(tot_player) + "}: " + str(
         player_cards) + "\t dealer{" + str(d[0]) + "}: " + str(d[1]))
     return winner
 
@@ -131,10 +143,10 @@ def mach(index):
 
 import matplotlib.pyplot as plt
 
-N_GAMES=1000        # number of games simulated per test
+N_GAMES=10000        # number of games simulated per test
 SOFT_TRIGGER=True   # allow the use of the soft hand decision table for the player
 N_TEST=8            # number of test
-DEBUG=True          # print each mach result
+DEBUG=False          # print each match result
 
 
 
@@ -144,7 +156,7 @@ for index in range(N_TEST):
     balance = 0
     balance_history = [0]
     for i in range(N_GAMES):
-        balance += (1 if mach(i) else -1)
+        balance += match()
         balance_history.append(balance)
     if(DEBUG):print(str(i+1)+") "+str(balance))
     last.append(balance)
