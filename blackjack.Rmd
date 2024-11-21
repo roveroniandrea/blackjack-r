@@ -764,7 +764,7 @@ The following computes the decision matrix:
 cache = new.env()
 decision_matrix = sapply(possible_dealer_face_up_card, function(dealer_up_card){
   return(sapply(possible_player_scores, function(player_score){
-    prob_lose_after_standing = calc_probability_lose_after_standing4(player_score, dealer_up_card, num_decks, cache)
+    prob_lose_after_standing = calc_probability_lose_after_standing2(player_score, dealer_up_card, num_decks, cache)
   
     prob_lose_after_hit = calc_probability_player_busting(player_score)
     
@@ -786,7 +786,7 @@ if (!require(reshape2)) {
 library(ggplot2)
 library(reshape2)
 
-df <- melt(sign(decision_matrix))
+df <- melt(decision_matrix)
 colnames(df) <- c("Y", "X", "Value")
 
 # 
