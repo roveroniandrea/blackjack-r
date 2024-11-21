@@ -44,7 +44,6 @@ plot(x, y)
 
 We can observe that the probability of a Blackjack decreases as the number of decks increases.
 However, note that it will never reach zero.
-**TODO: Show limit `x -> inf`**
 
 
 # Theorem 8.1 (Infinite Deck Assumption)
@@ -172,7 +171,7 @@ remove_paths_exceeding_cards <- function(paths, available_cards) {
 }
 ```
 
-**TODO: Not exactly, redo with new logic:**
+
 If the dealer has, for example, a Q, to make 19 he has the following possibilities:
 
 ```{r}
@@ -296,8 +295,6 @@ calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_va
         path_anagrams_not_blackjack_count = path_anagrams_not_blackjack_count - count_path_anagrams(path[-first_occ])
       }
       
-      # print(cat("Given up card ", dealer_up_card, " and target ", target_dealer_value, "and path ", toString(path)," anagram counts are ", path_anagrams_not_blackjack_count))
-      
       total_probability = total_probability + path_probability * path_anagrams_not_blackjack_count
     }
     
@@ -314,7 +311,6 @@ calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_va
       
       for(card in path){
         if(card == 1 && total + 11 <= 21){
-          # TODO: Forse l'asso può valere 1 se sballa con carte successive
           return(FALSE)
         }
         
@@ -328,11 +324,6 @@ calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_va
       total_probability = total_probability + calculate_path_probability(path)
     }
     
-    print(cat("Given up card ", dealer_up_card, " to reach ", target_dealer_value, " we have the following not-1 paths: "))
-    print(not_1_paths)
-    print(cat("Instead, given up card ", dealer_up_card, " to reach ", target_dealer_value, " we have the following 1 paths: "))
-    print(valid_one_path_permuts)
-    
     assign(cache_key, total_probability, envir = cache)
     return(total_probability)
   }
@@ -344,9 +335,6 @@ calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_va
     }, target_dealer_value - 1:11)
     total_probability = 0
     
-    # print("Safe scores:")
-    # print(safe_scores)
-    
     for(score in safe_scores){
         card_difference = target_dealer_value - score
         
@@ -355,13 +343,10 @@ calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_va
           (dealer_up_card %in% c(1, 11) && dealer_up_card == score && card_difference == 10)
         
         if(!is_blackjack){
-          print(cat("For standing at ", target_dealer_value, " we can reach ", score, " and then pick ", card_difference))
-          
           card_probability = if(card_difference == 10) {16/52} else {4/52}
           
           # Here we calculate the probability of obtaining a certain score
           intermediate_score_prob = calc_probability_exact_dealer_score(dealer_up_card, score, num_decks, cache)
-          # print(cat("The above has probability ", intermediate_score_prob, " * card_probability "))
           
           
           total_probability = total_probability + intermediate_score_prob * card_probability
@@ -468,25 +453,34 @@ calc_probability_lose_after_standing2 <- function(player_score, dealer_up_card, 
       is_blackjack = TRUE
     }
     
+    # We proceed only if the dealer has no blackjack
     if(!is_blackjack){
       score = dealer_up_card + card1
+      
+      # We can check if we reached a standing score
       if(score >= 17 && score <= 21 && score > player_score){
         prob = prob + card1_prob
       }
       else{
+        # Otherwise, we pick another card
+        
+        # If we went over 21, but we have an ace, we can consider it as a 1
         if(score > 21 && any(card1 %in% c(1, 11)) && (dealer_up_card + 1) >= 17 && (dealer_up_card + 1) <= 21 && (dealer_up_card + 1) > player_score){
-          # 11 is now 1
           prob = prob + card1_prob
         }
+        
         for(card2 in 2:11){
           card2_prob = if(card2 == 10) {16/52} else {4/52}
           
+          # We can check again if we reached a standing score
           if((score + card2 >= 17) && (score + card2 <= 21) && score + card2 > player_score){
             prob = prob + card1_prob * card2_prob
           }
           else{
+            
+            # If we went over 21, but we have an ace that would give us a standing value, we consider this a valid extraction
+            # We have two cases for the ace: the first card, or the second one
             if((score + card2) > 21 && any(card1 %in% c(1, 11)) && (dealer_up_card + 1 + card2) >= 17 && (dealer_up_card + 1 + card2) <= 21 && (dealer_up_card + 1 + card2) > player_score){
-              # card 1 is 11, now 1
               prob = prob + card1_prob * card2_prob
             }
             else{
@@ -505,188 +499,6 @@ calc_probability_lose_after_standing2 <- function(player_score, dealer_up_card, 
   
   return(prob)
 }
-```
-
-```{r}
-# Given a flat list of paths, returns a list consisting in the probability for each path to occur
-calculate_paths_probability <- function(paths){
-  return(Map(function(cards){
-    prob = 1
-    for(card in cards){
-      # We said that for any 10-valued card we have a 16/52 probability
-      if(card == 10){
-        prob = prob * (16/52)
-      }
-      # And a 4/52 probability for any non-10-valued card
-      else{
-        prob = prob * (4 / 52)
-      }
-    }
-    
-    return(prob)
-  }, paths))
-}
-
-# TODO: Rivedi
-calc_probability_lose_after_standing3 <- function(player_score, dealer_up_card, num_decks, cache){
-  prob = 0
-  
-  for(i in (player_score + 1):21){
-    if(i >= 17){
-      cache_key = paste(player_score, dealer_up_card, i, num_decks, sep = "_")
-      if(exists(cache_key, envir = cache)){
-        return(get(cache_key, envir = cache))
-      }
-      
-      paths = find_combinations(1:11, i - dealer_up_card)
-      valid_paths = Filter(function(path){
-        return(length(path) <= 3)
-      }, paths)
-      
-      # Now, generate all the possible permutations, filter out invalid ones, and flatten the results
-      permutations = permut_paths(valid_paths)
-      flattened_permutations = unlist(permutations, recursive = FALSE)
-      
-      valid_flattened_permutations = Filter(function(path){
-        is_blackjack = FALSE
-    
-        if(dealer_up_card == 10 && any(path[1] %in% c(1, 11))){
-          is_blackjack = TRUE
-        }
-        if(dealer_up_card %in% c(1, 11) && path[1] == 10){
-          is_blackjack = TRUE
-        }
-        
-        if(is_blackjack){
-          return(FALSE)
-        }
-        
-        total = dealer_up_card
-        for(card in path){
-          total = total + card
-          
-          if(total >= 17 && total != i){
-            return(FALSE)
-          }
-        }
-        
-        ones_occurrences = sum(path %in% c(1))
-        
-        if(ones_occurrences > 0){
-          total = dealer_up_card
-          unmatched_ones = 0
-          for(card in path){
-            if(card == 1){
-              unmatched_ones = unmatched_ones + 1
-              total = total + 11
-            }
-            else{
-              total = total + card
-            }
-            
-            if(total >= 17 && total <= 21){
-              return(FALSE)
-            }
-            if(total > 21){
-              if(unmatched_ones > 0){
-                unmatched_ones = unmatched_ones - 1
-              }
-              else{
-                return(FALSE)
-              }
-            }
-          }
-        }
-        
-        return(TRUE)
-        
-      }, flattened_permutations)
-      
-      # print(cat("For target ", i))
-      # print(valid_flattened_permutations)
-      
-      # Calculate the probability for each valid permutation, and sum them
-      probability_permutations = calculate_paths_probability(valid_flattened_permutations)
-      total_probability = sum(unlist(probability_permutations))
-      
-      assign(cache_key, total_probability, envir = cache)
-      prob = prob + total_probability
-    }
-  }
-  
-  return(prob)
-}
-```
-
-```{r}
-calc_probability_lose_after_standing4 <- function(player_score, dealer_up_card, num_decks, cache){
-  inner = function(current_score, unmatched_ones, depth){
-    if(current_score > 21){
-      if(unmatched_ones > 0){
-        unmatched_ones = unmatched_ones - 1
-        current_score = current_score - 10
-      }
-      else{
-        return(0)
-      }
-    }
-    
-    if(current_score > max(16, player_score) && current_score <= 21){
-      if(unmatched_ones <= 0){
-        return(1)
-      }
-      else{
-        return(0)
-      }
-    }
-    
-    if(depth <= 0){
-      if((current_score > max(16, player_score) && current_score <= 21) && unmatched_ones <= 0){
-        return(1)
-      }
-      else{
-        return(0)
-      }
-    }
-    
-    prob = 0
-    
-    for(card in 1:11){
-      is_blackjack = FALSE
-    
-      if(dealer_up_card == 10 && current_score == dealer_up_card && any(card %in% c(1, 11))){
-        is_blackjack = TRUE
-      }
-      if(dealer_up_card %in% c(1, 11) && current_score == dealer_up_card && card == 10){
-        is_blackjack = TRUE
-      }
-      
-      if(!is_blackjack){
-        card_prob = if(card == 10) {16/52} else {4/52}
-        is_one = if(card == 1) 1 else 0
-        
-        new_score = current_score + card
-        
-        if(is_one > 0){
-          new_score = current_score + 11
-        }
-        
-        inner_prob = inner(new_score, unmatched_ones + is_one, depth - 1)
-        
-        if(inner_prob > 0){
-          # print(cat(depth, "__", card))
-        }
-          
-        prob = prob + card_prob * inner_prob
-      }
-    }
-    
-    return(prob)
-  }
-  
-  return(inner(dealer_up_card, 0, 3))
-}
-  
 ```
 
 ## 1.2 Tie after standing
@@ -802,18 +614,3 @@ ggplot(df, aes(x = X, y = Y, fill = Value)) +
   labs(x = "Dealer's up card", y = "Hard total", fill = "Hit if > 0, else Stand") + # Aggiunge etichette
   theme(panel.grid = element_blank())                # Rimuove la griglia di sfondo
 ```
-
-# TODO: Algoritmo calcolo permutazioni
-Dato un valore target X:
-- Enumerare le partizioni di x (find_combinations)
-- Per ogni partizione, calcolare "gli anagrammi"con formula:
-$$
-anagrammi = \frac {l!} {k_1! * k_2! * ... * k_n!}
-$$
-- Per ogni partizione, la probabilità dei suoi anagrammi è data da:
-prob_partizione * num_anagrammi
-
-- Dove la probabilità della partizione è data:
-prob_partizione: (16/52) ^ (num_carte_10) * (4/52) ^ (num_carte_not_10)
-
-
