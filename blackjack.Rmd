@@ -262,6 +262,7 @@ calc_probability_exact_dealer_score <- function(dealer_up_card, target_dealer_va
     paths = find_combinations(possible_cards, target_dealer_value - dealer_up_card)
     
     # Then, filter out combinations that exceed the available cards
+    # For more than two decks, this is nearly ininfluent, since a long path would have a near-zero probability to occur
     available_cards = c(rep(4, 9), 16)* num_decks
     valid_paths = remove_paths_exceeding_cards(paths, available_cards)
     
@@ -574,7 +575,7 @@ The following computes the decision matrix:
 
 ```{r}
 cache = new.env()
-decision_matrix = sapply(possible_dealer_face_up_card, function(dealer_up_card){
+intermediate_matrix = sapply(possible_dealer_face_up_card, function(dealer_up_card){
   return(sapply(possible_player_scores, function(player_score){
     prob_lose_after_standing = calc_probability_lose_after_standing2(player_score, dealer_up_card, num_decks, cache)
   
@@ -584,7 +585,10 @@ decision_matrix = sapply(possible_dealer_face_up_card, function(dealer_up_card){
   }))
 })
 
-decision_matrix
+# Ace can either value 1 or 11
+intermediate_matrix[, 11] = intermediate_matrix[, 11] + intermediate_matrix[, 1]
+
+decision_matrix = intermediate_matrix[, -1]
 ```
 
 We can thus print the matrix:
@@ -598,19 +602,18 @@ if (!require(reshape2)) {
 library(ggplot2)
 library(reshape2)
 
-df <- melt(decision_matrix)
+df <- melt(sign(decision_matrix))
 colnames(df) <- c("Y", "X", "Value")
 
 # 
 ggplot(df, aes(x = X, y = Y, fill = Value)) +
-  geom_tile(color = "grey") +                       # Crea le celle con bordi bianchi
-  scale_fill_gradientn(colors = c("white", "black"), # Scala colore da nero a bianco
-                       values = c(0, 1),             # Mappa 0 (nero) e valori positivi (bianco)
-                       limits = c(-1, 1)) +          # Imposta i limiti della scala dei colori
-  #scale_y_reverse() +                                # Inverte l'asse Y per un aspetto simile a una matrice
-  scale_x_continuous(breaks = 1:ncol(decision_matrix), labels = possible_dealer_face_up_card) +  # Mostra tutte le colonne
-  scale_y_continuous(breaks = 1:nrow(decision_matrix), labels = possible_player_scores) +  # Mostra tutte le righe
+  geom_tile(color = "grey") +                       # Add grey border to the cells
+  scale_fill_gradientn(colors = c("white", "black"), # Cells should be a gradient from white to black
+                       values = c(0, 1),             # Low values are white, high values are black
+                       limits = c(-1, 1)) +          # Color scales go from -1 to 1
+  scale_x_continuous(breaks = 1:ncol(decision_matrix), labels = possible_dealer_face_up_card[-1]) +  # Show all columns, except ace=1
+  scale_y_continuous(breaks = 1:nrow(decision_matrix), labels = possible_player_scores) +
   theme_minimal() +
-  labs(x = "Dealer's up card", y = "Hard total", fill = "Hit if > 0, else Stand") + # Aggiunge etichette
-  theme(panel.grid = element_blank())                # Rimuove la griglia di sfondo
+  labs(x = "Dealer's up card", y = "Hard total", fill = "Hit if > 0, else Stand") + # Add labels
+  theme(panel.grid = element_blank())                # Remove background grid
 ```
