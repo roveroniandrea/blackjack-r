@@ -1,10 +1,25 @@
 import random
 from idlelib.colorizer import color_config
+import matplotlib.pyplot as plt
 
 import numpy as np
+from matplotlib import animation
 from matplotlib.lines import Line2D
 
-decision_matrix = [
+# 0= our, 1= book
+decision_matrix= [[
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, -1],
+    [1, 0, 0, 0, 0, 1, 1, 2, 2, 0],
+    [1, 1, 1, 1, 1, 1, 1, 1, 2, 0],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [3, 3, 3, 3, 3, 3, 3, 3, 3, 3],
+    [3, 3, 3, 3, 3, 3, 3, 3, 1, 1],
+    [1, 3, 3, 3, 3, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+],[
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     [0, 0, 0, 0, 0, 0, 0, 0, 0, -1],
     [0, 0, 0, 0, 0, 1, 1, 2, 2, 2],
@@ -16,6 +31,8 @@ decision_matrix = [
     [3, 3, 3, 3, 3, 3, 3, 3, 1, 1],
     [1, 3, 3, 3, 3, 1, 1, 1, 1, 1],
     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+]
+
 ]
 
 decision_matrix_soft=[
@@ -41,10 +58,8 @@ decision_matrix_soft=[
 
 def gen_card():
     c = random.randint(1, 13)
-    # non-10 valued cards have 4/52 = 1/13 prob
     if c == 1: return 11
-    # 10-valued cards have 16/52 = 4 / 13 prob
-    if c >= 10: return 10
+    if c > 11: return 10
     return c
 
 
@@ -64,19 +79,9 @@ def dealer(first_cards):
     return tot, card_sequence
 
 
-"""
-Returns 1 for player win, 0 for tie, -1 for player lose
-"""
 def evaluate_winner(player, p_c, house, h_c):
-    if(((p_c[0] + p_c[1]) == 21 and (h_c[0] + h_c[1]) != 21)
-       or (player > house and player <= 21)
-       or ( player <= 21 and house > 21)):
-        return 1
-    
-    if(player == house and player <= 21):
-        return 0
-
-    return -1
+    return ((p_c[0] + p_c[1]) == 21 and (h_c[0] + h_c[1]) != 21) or (player > house and player <= 21) or (
+                player <= 21 and house > 21)
 
 
 def decision_index(tot):
@@ -111,7 +116,7 @@ def player(player_cards, dealer_first):
     if tot > 21 and 11 in player_cards:
         player_cards[player_cards.index(11)] = 1
         tot -= 10
-    while (decision_matrix[decision_index(tot)][dealer_first-2]>0)and tot<=21:
+    while (decision_matrix[Matrix][decision_index(tot)][dealer_first-2]>0)and tot<=21:
         player_cards.append(gen_card())
         tot=sum(player_cards)
         if 11 in player_cards and SOFT_TRIGGER:
@@ -122,7 +127,7 @@ def player(player_cards, dealer_first):
     return sum(player_cards)
 
 
-def match():
+def mach(index):
     # game start
     dealer_first = gen_card()
     dealer_second = gen_card()
@@ -133,9 +138,9 @@ def match():
     #game end
     d = dealer([dealer_first, dealer_second])
     winner = evaluate_winner(tot_player, player_cards, d[0], d[1])
-    if(DEBUG):print(("win \t" if winner == 1 else ("lose\t" if winner == -1 else "tie\t")) + "player{" + str(tot_player) + "}: " + str(
+    if(DEBUG):print(("win \t" if winner else "lose\t") + "player{" + str(tot_player) + "}: " + str(
         player_cards) + "\t dealer{" + str(d[0]) + "}: " + str(d[1]))
-    return winner
+    return 1 if winner else (0 if tot_player==d[0] else -1)
 
 
 # TEST
@@ -143,12 +148,14 @@ def match():
 
 import matplotlib.pyplot as plt
 
-N_GAMES=10000        # number of games simulated per test
+N_GAMES=1000        # number of games simulated per test
 SOFT_TRIGGER=True   # allow the use of the soft hand decision table for the player
-N_TEST=8            # number of test
-DEBUG=False          # print each match result
+N_TEST=8          # number of test
+DEBUG=False          # print each mach result
+Matrix=0  #0=ours,  1 = bock
 
-
+an=[]
+buf=[]
 
 fig, ax = plt.subplots()
 last=[]
@@ -156,14 +163,53 @@ for index in range(N_TEST):
     balance = 0
     balance_history = [0]
     for i in range(N_GAMES):
-        balance += match()
+        balance += mach(i)
         balance_history.append(balance)
     if(DEBUG):print(str(i+1)+") "+str(balance))
     last.append(balance)
-
+    an=balance_history
+    buf.append(balance_history)
     #PLOT
     ax.plot(balance_history,color="C"+str(index),linestyle="--")
 print(np.mean(last))
+textstr="mean balance after 1000 games: "+str(np.mean(last))
 line=Line2D([0,N_GAMES],[0,np.mean(last)],color="C0",linestyle="-")
 ax.add_line(line)
-plt.show()
+fig.show()
+
+
+print(an)
+xx=np.arange(len(an))
+'''
+fig, ax = plt.subplots()
+line2, = ax.plot(xx[:3], an[:3])
+ax.set(xlim=[0, len(xx)], ylim=[min(an),max(an) ], xlabel='iterction', ylabel='earnings')
+def update(frame):
+    # for each frame, update the data stored on each artist.
+    # update the scatter plot:
+    # update the line plot:
+    line2.set_xdata(xx[:frame*5:5])
+    line2.set_ydata(an[:frame*5:5])
+    return line2
+ani = animation.FuncAnimation(fig=fig, func=update, frames=int(len(xx)/5), interval=1)
+ani.save('animation_drawing.gif', writer='Pillow', fps=600)
+#ani.to_jshtml()
+'''
+lines=[]
+fig, ax = plt.subplots()
+for i in range(N_TEST):
+    lines.append(ax.plot(0,0,color="C"+str(i),linestyle=":")[0])
+ax.set(xlim=[0, len(xx)], ylim=[min([min(b) for b in buf]),max([max(b) for b in buf]) ], xlabel='games', ylabel='balance')
+props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+ax.text(0.01, 0.01, textstr, transform=ax.transAxes, fontsize=9.5,
+        verticalalignment='bottom', bbox=props)
+def update(frame):
+    # for each frame, update the data stored on each artist.
+    # update the scatter plot:
+    # update the line plot:
+    for i in range(N_TEST):
+        lines[i].set_xdata(xx[:frame*5:5])
+        lines[i].set_ydata(buf[i][:frame*5:5])
+    return lines
+ani = animation.FuncAnimation(fig=fig, func=update, frames=int(len(xx)/5), interval=1)
+ani.save('animation_drawing_our.gif', writer='Pillow', fps=600)
